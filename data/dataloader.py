@@ -12,13 +12,13 @@ Copyright (c) 2019, Zhongqi Miao
 All rights reserved.
 """
 
-
-import numpy as np
-import torchvision
+import json
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torchvision import transforms
 import os
 from PIL import Image
+from data.ImbalanceCIFAR import IMBALANCECIFAR10, IMBALANCECIFAR100
+
 
 # Image statistics
 RGB_statistics = {
@@ -62,37 +62,50 @@ def get_data_transform(split, rgb_mean, rbg_std, key='default'):
     }
     return data_transforms[split]
 
+
 # Dataset
 class LT_Dataset(Dataset):
-    
-    def __init__(self, root, txt, transform=None):
+
+    def __init__(self, root, txt, dataset, transform=None, meta=False):
         self.img_path = []
         self.labels = []
         self.transform = transform
+
         with open(txt) as f:
             for line in f:
                 self.img_path.append(os.path.join(root, line.split()[0]))
                 self.labels.append(int(line.split()[1]))
-        
+
+        # save the class frequency
+        if 'train' in txt and not meta:
+            if not os.path.exists('cls_freq'):
+                os.makedirs('cls_freq')
+            freq_path = os.path.join('cls_freq', dataset + '.json')
+            self.img_num_per_cls = [0 for _ in range(max(self.labels)+1)]
+            for cls in self.labels:
+                self.img_num_per_cls[cls] += 1
+            with open(freq_path, 'w') as fd:
+                json.dump(self.img_num_per_cls, fd)
+
     def __len__(self):
         return len(self.labels)
-        
+
     def __getitem__(self, index):
 
         path = self.img_path[index]
         label = self.labels[index]
-        
+
         with open(path, 'rb') as f:
             sample = Image.open(f).convert('RGB')
-        
+
         if self.transform is not None:
             sample = self.transform(sample)
 
         return sample, label, index
 
-# Load datasets
-def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_workers=4, test_open=False, shuffle=True):
 
+# Load datasets
+def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_workers=4, test_open=False, shuffle=True, cifar_imb_ratio=None, meta=False):
     if phase == 'train_plain':
         txt_split = 'train'
     elif phase == 'train_val':
@@ -105,29 +118,40 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
 
     print('Loading data from %s' % (txt))
 
+
     if dataset == 'iNaturalist18':
         print('===> Loading iNaturalist18 statistics')
         key = 'iNaturalist18'
     else:
         key = 'default'
-    rgb_mean, rgb_std = RGB_statistics[key]['mean'], RGB_statistics[key]['std']
 
-    if phase not in ['train', 'val']:
-        transform = get_data_transform('test', rgb_mean, rgb_std, key)
+    if dataset == 'CIFAR10_LT':
+        print('====> CIFAR10 Imbalance Ratio: ', cifar_imb_ratio)
+        set_ = IMBALANCECIFAR10(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
+    elif dataset == 'CIFAR100_LT':
+        print('====> CIFAR100 Imbalance Ratio: ', cifar_imb_ratio)
+        set_ = IMBALANCECIFAR100(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
     else:
-        transform = get_data_transform(phase, rgb_mean, rgb_std, key)
+        rgb_mean, rgb_std = RGB_statistics[key]['mean'], RGB_statistics[key]['std']
+        if phase not in ['train', 'val']:
+            transform = get_data_transform('test', rgb_mean, rgb_std, key)
+        else:
+            transform = get_data_transform(phase, rgb_mean, rgb_std, key)
 
-    print('Use data transformation:', transform)
+        print('Use data transformation:', transform)
 
-    set_ = LT_Dataset(data_root, txt, transform)
+        set_ = LT_Dataset(data_root, txt, dataset, transform, meta)
+
+
     print(len(set_))
-    if phase == 'test' and test_open:
-        open_txt = './data/%s/%s_open.txt'%(dataset, dataset)
-        print('Testing with opensets from %s'%(open_txt))
-        open_set_ = LT_Dataset('./data/%s/%s_open'%(dataset, dataset), open_txt, transform)
-        set_ = ConcatDataset([set_, open_set_])
 
-    if sampler_dic and phase == 'train':
+    if sampler_dic and phase == 'train' and sampler_dic.get('batch_sampler', False):
+        print('Using sampler: ', sampler_dic['sampler'])
+        return DataLoader(dataset=set_,
+                           batch_sampler=sampler_dic['sampler'](set_, **sampler_dic['params']),
+                           num_workers=num_workers)
+
+    elif sampler_dic and (phase == 'train' or meta):
         print('Using sampler: ', sampler_dic['sampler'])
         # print('Sample %s samples per-class.' % sampler_dic['num_samples_cls'])
         print('Sampler parameters: ', sampler_dic['params'])

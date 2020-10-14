@@ -5,3 +5,4 @@ logs
 *.sh
 runs
 .vscode
+.idea

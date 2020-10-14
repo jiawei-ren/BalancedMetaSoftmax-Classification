@@ -42,11 +42,11 @@ class RandomCycleIter:
             
         return self.data_list[self.i]
     
-def class_aware_sample_generator (cls_iter, data_iter_list, n, num_samples_cls=1):
+def class_aware_sample_generator (cls_iter, data_iter_list, n, num_samples_cls=1, is_infinite=False):
 
     i = 0
     j = 0
-    while i < n:
+    while i < n or is_infinite:
         
 #         yield next(data_iter_list[next(cls_iter)])
         
@@ -64,7 +64,7 @@ def class_aware_sample_generator (cls_iter, data_iter_list, n, num_samples_cls=1
 
 class ClassAwareSampler (Sampler):
     
-    def __init__(self, data_source, num_samples_cls=1,):
+    def __init__(self, data_source, num_samples_cls=1, is_infinite=False):
         num_classes = len(np.unique(data_source.labels))
         self.class_iter = RandomCycleIter(range(num_classes))
         cls_data_list = [list() for _ in range(num_classes)]
@@ -73,10 +73,12 @@ class ClassAwareSampler (Sampler):
         self.data_iter_list = [RandomCycleIter(x) for x in cls_data_list]
         self.num_samples = max([len(x) for x in cls_data_list]) * len(cls_data_list)
         self.num_samples_cls = num_samples_cls
+
+        self.is_infinite = is_infinite
         
     def __iter__ (self):
         return class_aware_sample_generator(self.class_iter, self.data_iter_list,
-                                            self.num_samples, self.num_samples_cls)
+                                            self.num_samples, self.num_samples_cls, self.is_infinite)
     
     def __len__ (self):
         return self.num_samples

@@ -1,174 +1,187 @@
-# Classifier-Balancing 
-This repository contains code for the paper:
+# BalancedMetaSoftmax - Classification
 
-**Decoupling Representation and Classifier for Long-Tailed Recognition**  
-[Bingyi Kang](https://scholar.google.com.sg/citations?user=NmHgX-wAAAAJ&hl=en), [Saining Xie](http://vcl.ucsd.edu/~sxie),[Marcus Rohrbach](https://rohrbach.vision/), [Zhicheng Yan](https://sites.google.com/view/zhicheng-yan), [Albert Gordo](https://agordo.github.io/), [Jiashi Feng](https://sites.google.com/site/jshfeng/), [Yannis Kalantidis](http://www.skamalas.com/)  
-[[OpenReview](https://openreview.net/forum?id=r1gRTCVFvB)]
-[[Arxiv](https://arxiv.org/abs/1910.09217)]
-[[PDF](https://arxiv.org/pdf/1910.09217.pdf)]
-[[Slides](https://docs.google.com/presentation/d/1ALgcp2RBaC7T9Pbgh4qciZ2gFSc_yV_ajfV78RCjLhs/edit?usp=sharing)]
-[[@ICLR](https://iclr.cc/virtual/poster_r1gRTCVFvB.html)]  
-Facebook AI Research, National University of Singapore  
-_International Conference on Learning Representations (ICLR), 2020_
+Code for the paper "Balanced Meta-Softmax for Long-Tailed Visual Recognition" on long-tailed visual recognition datasets.
 
+**[Balanced Meta-Softmax for Long-Tailed Visual Recognition](https://arxiv.org/abs/2007.10740)**  
+Jiawei Ren, Cunjun Yu, Shunan Sheng, Xiao Ma, Haiyu Zhao, Shuai Yi, Hongsheng Li  
+NeurIPS 2020
 
-#### Abstract
-The long-tail distribution of the visual world poses great challenges for deep learning based classification models on how to handle the class imbalance problem. Existing solutions usually involve  class-balancing strategies, e.g., by loss re-weighting, data re-sampling, or transfer learning from head- to tail-classes, but all of them adhere to the scheme of jointly learning representations and classifiers. In this work, we decouple the learning procedure into representation learning and classification, and systematically explore how different balancing strategies affect them for long-tailed recognition. The findings are surprising: (1) data imbalance might not be an issue in learning high-quality representations; (2) with representations learned with the simplest instance-balanced (natural) sampling, it is also possible to achieve strong long-tailed recognition ability with relative ease by adjusting only the classifier. We conduct extensive experiments and set new state-of-the-art performance on common long-tailed benchmarks like ImageNet-LT, Places-LT and iNaturalist, showing that it is possible to outperform carefully designed losses, sampling strategies, even complex modules with memory, by using a straightforward approach that decouples representation and classification.
+## Snapshot
+```python
 
-&nbsp;
-<p align="center">
-<img src='./assets/tau_norm.png' width=800>
-</p>
-&nbsp;
+def balanced_softmax_loss(labels, logits, sample_per_class, reduction):
+    """Compute the Balanced Softmax Loss between `logits` and the ground truth `labels`.
+    Args:
+      labels: A int tensor of size [batch].
+      logits: A float tensor of size [batch, no_of_classes].
+      sample_per_class: A int tensor of size [no of classes].
+      reduction: string. One of "none", "mean", "sum"
+    Returns:
+      loss: A float tensor. Balanced Softmax Loss.
+    """
+    spc = sample_per_class.type_as(logits)
+    spc = spc.unsqueeze(0).expand(logits.shape[0], -1)
+    logits = logits + spc.log()
+    loss = F.cross_entropy(input=logits, target=labels, reduction=reduction)
+    return loss
 
-
-If you find this code useful, consider citing our work:
 ```
-@inproceedings{kang2019decoupling,
-  title={Decoupling representation and classifier for long-tailed recognition},
-  author={Kang, Bingyi and Xie, Saining and Rohrbach, Marcus and Yan, Zhicheng
-          and Gordo, Albert and Feng, Jiashi and Kalantidis, Yannis},
-  booktitle={Eighth International Conference on Learning Representations (ICLR)},
-  year={2020}
+## Requirements 
+* Python 3
+* [PyTorch](https://pytorch.org/) (version >= 1.3)
+* [yaml](https://pyyaml.org/wiki/PyYAMLDocumentation)
+* [higher](https://github.com/facebookresearch/higher)(version == 0.2.1)
+
+
+
+## Training
+### End-to-end Training
+- Base model (Representation Learning)
+```bash
+python main.py --cfg ./config/CIFAR10_LT/softmax_imba200.yaml
+```
+Alternatively, you may download a pretrained model [here](https://drive.google.com/file/d/1laY5ce0-sw3HrHBQZ2Gseo9acbG2CavK/view?usp=sharing) and put it in the corresponding log folder. 
+- Balanced Softmax
+```bash
+python main.py --cfg ./config/CIFAR10_LT/balanced_softmax_imba200.yaml
+```
+### Decoupled Training
+After obataining the base model, train the classifier with the following command:
+- Balanced Softmax
+```bash
+python main.py --cfg ./config/CIFAR10_LT/decouple_balanced_softmax_imba200.yaml
+```
+- BALMS
+```bash
+python main.py --cfg ./config/CIFAR10_LT/balms_imba200.yaml
+```
+## Evaluation
+
+Model evaluation can be done using the following command:
+```bash
+python main.py --cfg ./config/CIFAR10_LT/balms_imba200.yaml --test
+```
+
+## Experiment Results
+The results could be slightly different from the results reported in the paper, since we originally used an internal repository for the experiments in the paper.
+<table><tbody>
+<!-- START TABLE -->
+<!-- TABLE HEADER -->
+<th valign="bottom", align="left">Dataset</th>
+<th valign="bottom", align="left">Backbone</th>
+<th valign="bottom", align="left">Method</th>
+<th valign="bottom">Accuracy</th>
+<th valign="bottom">download</th>
+
+<!-- TABLE BODY -->
+<tr>
+<td align="left">CIFAR-10 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Softmax</td>
+<td align="center">74.0</td>
+<td align="center"><a href="https://drive.google.com/file/d/1laY5ce0-sw3HrHBQZ2Gseo9acbG2CavK/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1KEyA1kaMXXJxzKaZxQK_JyFz6smvP9ib/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-10 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Balanced Softmax (end-to-end)</td>
+<td align="center">79.8</td>
+<td align="center"><a href="https://drive.google.com/file/d/17AsyPy5mXavxXJvLiGzWIjgIyoukFSRQ/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1QwJq9BpkSaCVRLJcthONM7oGOD7Hqu3m/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-10 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Balanced Softmax (decouple)</td>
+<td align="center">81.8</td>
+<td align="center"><a href="https://drive.google.com/file/d/1VztEqUdA_RCzg0oXk3rebv5EPAF5B6es/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/13q6vDu8zMSSX9NFUGqWZe_YxH-__GCTl/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-10 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">BALMS</td>
+<td align="center">82.2</td>
+<td align="center"><a href="https://drive.google.com/file/d/1CK0mDg8tpPAxnh5ZEx4-6eX3sEdQoXGi/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1WhQbiUvmjxJOIS4HiBUQm2y-N5u7xXCY/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-100 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Softmax</td>
+<td align="center">41.2</td>
+<td align="center"><a href="https://www.dropbox.com/s/63q8cf7i62aveo6/model_final.pth?dl=0">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1xsOPbCNZsHbRUkmobFaUCHBPulRRP8Rh/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-100 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Balanced Softmax (end-to-end)</td>
+<td align="center">46.7</td>
+<td align="center"><a href="https://drive.google.com/file/d/1Dyutyp7InoaQdePJXZDSrvhSts7y2Z6-/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1tMa88v-ZWPuIMzF0N0XYg9r6xCrpEn0i/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-100 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">Balanced Softmax (decouple)</td>
+<td align="center">47.2</td>
+<td align="center"><a href="https://drive.google.com/file/d/144mXXEP58hWS1y9RlNo0ThbpdThxT191/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1slP1eln4qq-dG_piLZ8TlGqvR_Ms8a7G/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">CIFAR-100 (IF 200)</td>
+<td align="left">ResNet-32</td>
+<td align="left">BALMS</td>
+<td align="center">48.0</td>
+<td align="center"><a href="https://drive.google.com/file/d/1Qc4-F1qFu6ebVEeZSJMdnE_DnMh_siit/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1t4uA6jqMeoeoz_UhgTA_Iog3ZhchX6P7/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">ImageNet-LT</td>
+<td align="left">ResNet-10</td>
+<td align="left">Softmax</td>
+<td align="center">34.8</td>
+<td align="center"><a href="https://drive.google.com/file/d/1QWoj418KRhW5JhnTk-Mu_a5ram0V9X9V/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1llnGZWHv7Kt5c7VE1SQbywmC_qPnhI5d/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">ImageNet-LT</td>
+<td align="left">ResNet-10</td>
+<td align="left">BALMS</td>
+<td align="center">41.6</td>
+<td align="center"><a href="https://drive.google.com/file/d/1v6G1xGkku5px4tombqtR8xJI-Qj1F0dI/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1EUfTFVocx59CZigElUALgvR6OYoiuhtD/view?usp=sharing">log</a></td>
+</tr>
+<tr>
+<td align="left">Places-LT</td>
+<td align="left">ResNet-152</td>
+<td align="left">Softmax</td>
+<td align="center">30.2</td>
+<td align="center"><a href="https://dl.fbaipublicfiles.com/classifier-balancing/Places_LT/models/resnet152_uniform.pth">model</a>&nbsp;|&nbsp;<a href="">log</a></td>
+</tr>
+<tr>
+<td align="left">Places-LT</td>
+<td align="left">ResNet-152</td>
+<td align="left">BALMS</td>
+<td align="center">38.3</td>
+<td align="center"><a href="https://drive.google.com/file/d/1hPW6CrXmBpvinU1rhmp2TpnkUNl9NUf0/view?usp=sharing">model</a>&nbsp;|&nbsp;<a href="https://drive.google.com/file/d/1jpcM2Su3YVJke8o78gluUEPEvua0Z4kH/view?usp=sharing">log</a></td>
+</tr>
+
+</tbody></table>
+
+
+## Cite BALMS
+```bibtex
+@inproceedings{
+    Ren2020balms,
+    title={Balanced Meta-Softmax for Long-Tailed Visual Recognition},
+    author={Jiawei Ren and Cunjun Yu and Shunan Sheng and Xiao Ma and Haiyu Zhao and Shuai Yi and Hongsheng Li},
+    booktitle={Proceedings of Neural Information Processing Systems(NeurIPS)},
+    month = {Dec},
+    year={2020}
 }
 ```
 
-### Requirements 
-The code is based on [https://github.com/zhmiao/OpenLongTailRecognition-OLTR](https://github.com/zhmiao/OpenLongTailRecognition-OLTR).
-* Python 3
-* [PyTorch](https://pytorch.org/) (version >= 0.4.1)
-* [yaml](https://pyyaml.org/wiki/PyYAMLDocumentation)
+## Instance Segmentation
 
+For BALMS on instance segmentation, please try out this [**repo**](https://github.com/Majiker/BalancedMetaSoftmax-InstanceSeg).
 
-### Dataset
-* ImageNet_LT and Places_LT
+## Reference 
+- The code is based on [classifier-balancing](https://github.com/facebookresearch/classifier-balancing).
+- CIFAR-LT dataset is from [A Strong Single-Stage Baseline for Long-Tailed Problems](https://github.com/KaihuaTang/Long-Tailed-Recognition.pytorch)
+- ResNet-32 is from [BBN](https://github.com/Megvii-Nanjing/BBN)
+- Cutout augmentation is from [Cutout](https://github.com/uoguelph-mlrg/Cutout)
+- CIFAR auto augmentation is from [AutoAugment](https://github.com/DeepVoltaire/AutoAugment)
 
-  Download the [ImageNet_2014](http://image-net.org/index) and [Places_365](http://places2.csail.mit.edu/download.html).
-
-* iNaturalist 2018
-
-  * Download the dataset following [here](https://github.com/visipedia/inat_comp/tree/master/2018).
-  * `cd data/iNaturalist18`, Generate image name files with this [script](data/iNaturalist18/gen_lists.py) or use the existing ones [[here](data/iNaturalist18)].
-
-Change the `data_root` in `main.py` accordingly.
-
-### Representation Learning 
-1. Instance-balanced Sampling
-```
-python main.py --cfg ./config/ImageNet_LT/feat_uniform.yaml
-```
-
-2. Class-balanced Sampling
-```
-python main.py --cfg ./config/ImageNet_LT/feat_balance.yaml
-```
-
-3. Square-root Sampling
-```
-python main.py --cfg ./config/ImageNet_LT/feat_squareroot.yaml
-```
-
-4. Progressively-balancing Sampling
-```
-python main.py --cfg ./config/ImageNet_LT/feat_shift.yaml
-```
-
-Test the joint learned classifier with representation learning
-```
-python main.py --cfg ./config/ImageNet_LT/feat_uniform.yaml --test 
-```
-
-### Classifier Learning 
-1. Nearest Class Mean classifier (NCM).
-```
-python main.py --cfg ./config/ImageNet_LT/feat_uniform.yaml --test --knn
-```
-
-2. Classifier Re-training (cRT)
-```
-python main.py --cfg ./config/ImageNet_LT/cls_crt.yaml --model_dir ./logs/ImageNet_LT/models/resnext50_uniform_e90
-python main.py --cfg ./config/ImageNet_LT/cls_crt.yaml --test
-```
-   
-3. Tau-normalization 
-
-Extract fatures
-```
-for split in train_split val test
-do
-  python main.py --cfg ./config/ImageNet_LT/feat_uniform.yaml --test --save_feat $split
-done
-```
-Evaluation
-```
-for split in train val test
-do
-  python tau_norm.py --root ./logs/ImageNet_LT/models/resnext50_uniform_e90/ --type $split
-done
-```
-
-4. Learnable weight scaling (LWS)
-
-```
-python main.py --cfg ./config/ImageNet_LT/cls_lws.yaml --model_dir ./logs/ImageNet_LT/models/resnext50_uniform_e90
-python main.py --cfg ./config/ImageNet_LT/cls_lws.yaml --test
-```
-
-### Results and Models
-
-#### ImageNet_LT
-- Representation learning  
-
-  | Sampling               | Many  | Medium |  Few   |  All   | Model  |
-  | ---------------------- |:-----:|:------:|:------:|:------:|:------:|
-  | Instance-Balanced      | 65.9  |  37.5  |	7.7	  |  44.4  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext50_uniform_e90.pth)|
-  | Class-Balanced         | 61.8	|  40.1	 |  15.5	|  45.1  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext50_balance_e90.pth)|
-  | Square-Root            | 64.3	|  41.2	 |  17.0	|  46.8  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext50_square_e90.pth)|
-  | Progressively-Balanced | 61.9  |  43.2  |  19.4	|  47.2  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext50_shift_e90.pth)|
-
-  For other models trained with instance-balanced  (natural) sampling:  
-  [[ResNet50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnet50_uniform_e90.pth)]
-  [[ResNet101](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnet101_uniform_e90.pth)]
-  [[ResNet152](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnet152_uniform_e90.pth)]
-  [[ResNeXt101](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext101_uniform_e90.pth)]
-  [[ResNeXt152](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/models/resnext152_uniform_e90.pth)]
-
-- Classifier learning 
-
-  | Classifier             | Many  | Medium |  Few   |  All   | Model  |
-  | ---------------------- |:-----:|:------:|:------:|:------:|:------:|
-  | Joint                  | 65.9  |  37.5  |	7.7	  |  44.4  | ResNeXt50|
-  | NCM                    | 56.6  |  45.3  | 28.1  |  47.3  | ResNeXt50|
-  | cRT                    | 61.8  |  46.2  | 27.4  |  49.6  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/clslearn/resnext50_crt_uni2bal.pth)|
-  | Tau-normalization      | 59.1  |  46.9  | 30.7  |  49.4  | ResNeXt50|
-  | LWS                    | 60.2  |  47.2  | 30.3  |  49.9  | [ResNeXt50](https://dl.fbaipublicfiles.com/classifier-balancing/ImageNet_LT/clslearn/resnext50_lws_uni2bal.pth)|
-
-#### iNaturalist 2018
-- Representaion Learning   
-  We provide the pre-trained models with instance-balanced  (natural) sampling for 90 and 200 epochs as follows:  
-  **90 epochs**:
-  [[ResNet50](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet50_uniform_e90.pth)]
-  [[ResNet101](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet101_uniform_e90.pth)]
-  [[ResNet152](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet152_uniform_e90.pth)]
-  **200 epochs**:
-  [[ResNet50](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet50_uniform_e200.pth)]
-  [[ResNet101](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet101_uniform_e200.pth)]
-  [[ResNet152](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/models/resnet152_uniform_e200.pth)]
-- Classifier learning   
-  We provide the cRT and LWS models based on a pretrained ResNet152 model (200 epochs) as follows:  
-  [[ResNet152(cRT)](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/clslearn/resnet152_crt_uni2bal.pth)]
-  [[ResNet152(LWS)](https://dl.fbaipublicfiles.com/classifier-balancing/iNaturalist18/clslearn/resnet152_lws_uni2bal.pth)]
-
-#### Places_LT
-- Representaion learning  
-  We provide a pretrained ResNet152 with instance-balanced (natural) sampling: [[link](https://dl.fbaipublicfiles.com/classifier-balancing/Places_LT/models/resnet152_uniform.pth)]
-- Classifier learning  
-  We provide the cRT and LWS models based on above pretrained ResNet152 model as follows:  
-  [[ResNet152(cRT)](https://dl.fbaipublicfiles.com/classifier-balancing/Places_LT/clslearn/resnet152_crt_uni2bal.pth)]
-  [[ResNet152(LWS)](https://dl.fbaipublicfiles.com/classifier-balancing/Places_LT/clslearn/resnet152_lws_uni2bal.pth)]
-
-To test a pretrained model:   
-```python main.py --cfg /path/to/config/file --model_dir /path/to/model/file --test```
-
-### License
-This project is licensed under the license found in the [LICENSE](LICENSE) file in the root directory of this source tree (here). Portions of the source code are from the [OLTR](https://github.com/zhmiao/OpenLongTailRecognition-OLTR) project.

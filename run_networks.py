@@ -26,11 +26,20 @@ import time
 import numpy as np
 import warnings
 import pdb
+import higher
 
 
 class model ():
     
-    def __init__(self, config, data, test=False):
+    def __init__(self, config, data, test=False, meta_sample=False, learner=None):
+
+        self.meta_sample = meta_sample
+
+        # init meta learner and meta set
+        if self.meta_sample:
+            assert learner is not None
+            self.learner = learner
+            self.meta_data = iter(data['meta'])
         
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.config = config
@@ -40,6 +49,12 @@ class model ():
         self.test_mode = test
         self.num_gpus = torch.cuda.device_count()
         self.do_shuffle = config['shuffle'] if 'shuffle' in config else False
+
+        # Compute epochs from iterations
+        if self.training_opt.get('num_iterations', False):
+            self.training_opt['num_epochs'] = math.ceil(self.training_opt['num_iterations'] / len(self.data['train']))
+        if self.config.get('warmup_iterations', False):
+            self.config['warmup_epochs'] = math.ceil(self.config['warmup_iterations'] / len(self.data['train']))
 
         # Setup logger
         self.logger = Logger(self.training_opt['log_dir'])
@@ -94,6 +109,11 @@ class model ():
         self.networks = {}
         self.model_optim_params_list = []
 
+        if self.meta_sample:
+            # init meta optimizer
+            self.optimizer_meta = torch.optim.Adam(self.learner.parameters(),
+                                                   lr=self.training_opt['sampler'].get('lr', 0.01))
+
         print("Using", torch.cuda.device_count(), "GPUs.")
         
         for key, val in networks_defs.items():
@@ -119,6 +139,11 @@ class model ():
                     if 'selfatt' not in param_name and 'fc' not in param_name:
                         param.requires_grad = False
                     # print('  | ', param_name, param.requires_grad)
+
+            if self.meta_sample and key!='classifier':
+                # avoid adding classifier parameters to the optimizer,
+                # otherwise error will be raised when computing higher gradients
+                continue
 
             # Optimizer list
             optim_params = val['optim_params']
@@ -158,6 +183,17 @@ class model ():
             print("===> Using coslr eta_min={}".format(self.config['endlr']))
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer, self.training_opt['num_epochs'], eta_min=self.config['endlr'])
+        elif self.config['coslrwarmup']:
+            print("===> Using coslrwarmup eta_min={}, warmup_epochs={}".format(
+                self.config['endlr'],self.config['warmup_epochs']))
+            scheduler = CosineAnnealingLRWarmup(
+                optimizer=optimizer,
+                T_max=self.training_opt['num_epochs'],
+                eta_min=self.config['endlr'],
+                warmup_epochs=self.config['warmup_epochs'],
+                base_lr=self.config['base_lr'],
+                warmup_lr=self.config['warmup_lr']
+            )
         else:
             scheduler = optim.lr_scheduler.StepLR(optimizer,
                                                   step_size=self.scheduler_params['step_size'],
@@ -225,6 +261,43 @@ class model ():
         y = y[index]
         return x, y
 
+    def meta_forward(self, inputs, labels, verbose=False):
+        # take a meta step in the inner loop
+        self.learner.train()
+        self.model_optimizer.zero_grad()
+        self.optimizer_meta.zero_grad()
+        with higher.innerloop_ctx(self.networks['classifier'], self.model_optimizer) as (fmodel, diffopt):
+            # obtain the surrogate model
+            features, _ = self.networks['feat_model'](inputs)
+            train_outputs, _ = fmodel(features.detach())
+            loss = self.criterions['PerformanceLoss'](train_outputs, labels, reduction='none')
+            loss = self.learner.forward_loss(loss)
+            diffopt.step(loss)
+
+            # use the surrogate model to update sample rate
+            val_inputs, val_targets, _ = next(self.meta_data)
+            val_inputs = val_inputs.cuda()
+            val_targets = val_targets.cuda()
+            features, _ = self.networks['feat_model'](val_inputs)
+            val_outputs, _ = fmodel(features.detach())
+            val_loss = F.cross_entropy(val_outputs, val_targets, reduction='mean')
+            val_loss.backward()
+            self.optimizer_meta.step()
+
+        self.learner.eval()
+
+        if verbose:
+            # log the sample rates
+            num_classes = self.learner.num_classes
+            prob = self.learner.fc[0].weight.sigmoid().squeeze(0)
+            print_str = ['Unnormalized Sample Prob:']
+            interval = 1 if num_classes < 10 else num_classes // 10
+            for i in range(0, num_classes, interval):
+                print_str.append('class{}={:.3f},'.format(i, prob[i].item()))
+            max_mem_mb = torch.cuda.max_memory_allocated() / 1024.0 / 1024.0
+            print_str.append('\nMax Mem: {:.0f}M'.format(max_mem_mb))
+            print_write(print_str, self.log_file)
+
     def train(self):
         # When training the network
         print_str = ['Phase: train']
@@ -270,6 +343,9 @@ class model ():
 
                 # If on training phase, enable gradients
                 with torch.set_grad_enabled(True):
+                    if self.meta_sample:
+                        # do inner loop
+                        self.meta_forward(inputs, labels, verbose=step % self.training_opt['display_step'] == 0)
                         
                     # If training, forward with loss, and no top 5 accuracy calculation
                     self.batch_forward(inputs, labels, 

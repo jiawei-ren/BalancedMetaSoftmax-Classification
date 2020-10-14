@@ -21,9 +21,13 @@ import warnings
 import yaml
 from utils import source_import, get_value
 
-data_root = {'ImageNet': '/datasets01_101/imagenet_full_size/061417',
-             'Places': '/datasets01_101/Places365/041019',
-             'iNaturalist18': '/checkpoint/bykang/iNaturalist18'}
+
+data_root = {'ImageNet': './dataset/ImageNet',
+             'Places': './dataset/Places-LT',
+             'iNaturalist18': '/checkpoint/bykang/iNaturalist18',
+             'CIFAR10': './dataset/CIFAR10',
+             'CIFAR100': './dataset/CIFAR100',
+             }
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--cfg', default=None, type=str)
@@ -110,6 +114,17 @@ if not test_mode:
                 'params': {k: v for k, v in sampler_defs.items() \
                            if k not in ['type', 'def_file']}
             }
+        elif sampler_defs['type'] == 'MetaSampler':  # Add option for Meta Sampler
+            learner = source_import(sampler_defs['def_file']).get_learner()(
+                num_classes=training_opt['num_classes'],
+                init_pow=sampler_defs.get('init_pow', 0.0),
+                freq_path=sampler_defs.get('freq_path', None)
+            ).cuda()
+            sampler_dic = {
+                'batch_sampler': True,
+                'sampler': source_import(sampler_defs['def_file']).get_sampler(),
+                'params': {'meta_learner': learner, 'batch_size': training_opt['batch_size']}
+            }
     else:
         sampler_dic = None
 
@@ -120,10 +135,27 @@ if not test_mode:
                                     dataset=dataset, phase=split2phase(x), 
                                     batch_size=training_opt['batch_size'],
                                     sampler_dic=sampler_dic,
-                                    num_workers=training_opt['num_workers'])
+                                    num_workers=training_opt['num_workers'],
+                                    cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in splits}
 
-    training_model = model(config, data, test=False)
+    if sampler_defs and sampler_defs['type'] == 'MetaSampler':   # todo: use meta-sampler
+        cbs_file = './data/ClassAwareSampler.py'
+        cbs_sampler_dic = {
+                'sampler': source_import(cbs_file).get_sampler(),
+                'params': {'is_infinite': True}
+            }
+        # use Class Balanced Sampler to create meta set
+        data['meta'] = dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')],
+                                    dataset=dataset, phase='train' if 'CIFAR' in dataset else 'val',
+                                    batch_size=sampler_defs.get('meta_batch_size', training_opt['batch_size'], ),
+                                    sampler_dic=cbs_sampler_dic,
+                                    num_workers=training_opt['num_workers'],
+                                    cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None,
+                                    meta=True)
+        training_model = model(config, data, test=False, meta_sample=True, learner=learner)
+    else:
+        training_model = model(config, data, test=False)
 
     training_model.train()
 
@@ -153,7 +185,8 @@ else:
                                     sampler_dic=None, 
                                     test_open=test_open,
                                     num_workers=training_opt['num_workers'],
-                                    shuffle=False)
+                                    shuffle=False,
+                                    cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in splits}
     
     training_model = model(config, data, test=True)
