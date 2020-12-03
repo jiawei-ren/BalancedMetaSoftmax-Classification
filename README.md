@@ -28,7 +28,7 @@ def balanced_softmax_loss(labels, logits, sample_per_class, reduction):
 ```
 ## Requirements 
 * Python 3
-* [PyTorch](https://pytorch.org/) (version >= 1.3)
+* [PyTorch](https://pytorch.org/) (version == 1.4)
 * [yaml](https://pyyaml.org/wiki/PyYAMLDocumentation)
 * [higher](https://github.com/facebookresearch/higher)(version == 0.2.1)
 
