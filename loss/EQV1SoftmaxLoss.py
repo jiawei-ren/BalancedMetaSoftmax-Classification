@@ -17,6 +17,7 @@ import torch
 from torch.nn.modules.loss import _Loss
 import torch.nn.functional as F
 import json
+import pdb
 
 
 class EQV1Softmax(_Loss):
@@ -33,6 +34,7 @@ class EQV1Softmax(_Loss):
         freq = torch.tensor(freq)
         # self.sample_per_class = freq
         self.freq_ratio = freq / freq.sum()
+        # pdb.set_trace()
 
     def forward(self, logit, label, reduction='mean'):
 
@@ -52,8 +54,10 @@ class EQV1Softmax(_Loss):
 
         logit = logit + eql_w
 
+        # pdb.set_trace()
 
-        loss = F.cross_entropy(input=logits, target=labels, reduction=reduction)
+
+        loss = F.cross_entropy(input=logit, target=label, reduction=reduction)
         return loss
 
     def threshold_func(self):
@@ -64,7 +68,7 @@ class EQV1Softmax(_Loss):
         return weight
     
     def beta(self):
-        return torch.rand(1) < self.gamma
+        return (torch.rand(self.n_b,self.n_c) < self.gamma).cuda()
 
 def create_loss(freq_path):
     print('Loading EQV1 Softmax Loss.')
