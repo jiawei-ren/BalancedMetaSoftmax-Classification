@@ -55,6 +55,7 @@ class EQV1Softmax(_Loss):
         logit = logit + eql_w
 
         # pdb.set_trace()
+        
 
 
         loss = F.cross_entropy(input=logit, target=label, reduction=reduction)
