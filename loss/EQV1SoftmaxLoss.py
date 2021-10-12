@@ -67,6 +67,6 @@ class EQV1Softmax(_Loss):
         return torch.rand(1) < self.gamma
 
 def create_loss(freq_path):
-    print('Loading Balanced Softmax Loss.')
-    return BalancedSoftmax(freq_path)
+    print('Loading EQV1 Softmax Loss.')
+    return EQV1Softmax(freq_path)
 
