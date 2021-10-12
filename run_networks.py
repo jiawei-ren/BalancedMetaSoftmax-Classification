@@ -61,6 +61,7 @@ class model ():
         
         # Initialize model
         self.init_models()
+        # pdb.set_trace()
 
         # Load pre-trained model parameters
         if 'model_dir' in self.config and self.config['model_dir'] is not None:
@@ -83,6 +84,7 @@ class model ():
             self.model_optimizer, \
             self.model_optimizer_scheduler = self.init_optimizers(self.model_optim_params_list)
             self.init_criterions()
+            # pdb.set_trace()
             if self.memory['init_centroids']:
                 self.criterions['FeatureLoss'].centroids.data = \
                     self.centroids_cal(self.data['train_plain'])
@@ -151,6 +153,7 @@ class model ():
                                                 'lr': optim_params['lr'],
                                                 'momentum': optim_params['momentum'],
                                                 'weight_decay': optim_params['weight_decay']})
+            # pdb.set_trace()
 
     def init_criterions(self):
         criterion_defs = self.config['criterions']
@@ -315,6 +318,7 @@ class model ():
         # best_centroids = self.centroids
 
         end_epoch = self.training_opt['num_epochs']
+        # pdb.set_trace()
 
         # Loop over epochs
         for epoch in range(1, end_epoch + 1):
