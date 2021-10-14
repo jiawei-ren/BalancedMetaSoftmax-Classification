@@ -25,13 +25,13 @@ networks:
     params: {}
 shuffle: false
 training_opt:
-  weight_logits: false
+  weight_logits: true
   backbone: resnet32
   batch_size: 512
   dataset: CIFAR100_LT
   display_step: 10
   feature_dim: 64
-  log_dir: ./logs/CIFAR100_LT/models/resnet32_softmax_imba200
+  log_dir: ./logs/CIFAR100_LT/models/resnet32_eqv2_softmax_imba200
   num_classes: 100
   num_iterations: 13000
   num_workers: 4

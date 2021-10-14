@@ -2,8 +2,8 @@ coslr: false
 coslrwarmup: true
 criterions:
   PerformanceLoss:
-    def_file: ./loss/BalancedSoftmaxLoss.py
-    loss_params: {freq_path: ./cls_freq/CIFAR-100-LT_IMBA200.json}
+    def_file: ./loss/SoftmaxLoss.py
+    loss_params: {}
     optim_params: null
     weight: 1.0
 endlr: 0.0
@@ -17,7 +17,7 @@ networks:
   classifier:
     def_file: ./models/DotProductClassifier.py
     optim_params: {lr: 0.05, momentum: 0.9, weight_decay: 0.0005}
-    params: {feat_dim: 64, num_classes: 100}
+    params: {feat_dim: 64, num_classes: 10}
   feat_model:
     def_file: ./models/ResNet32Feature.py
     fix: false
@@ -25,14 +25,14 @@ networks:
     params: {}
 shuffle: false
 training_opt:
-  weight_logits: false
+  weight_logits: true
   backbone: resnet32
   batch_size: 512
-  dataset: CIFAR100_LT
+  dataset: CIFAR10_LT
   display_step: 10
   feature_dim: 64
-  log_dir: ./logs/CIFAR100_LT/models/resnet32_balanced_softmax_imba200
-  num_classes: 100
+  log_dir: ./logs/CIFAR10_LT/models/resnet32_eqv2_softmax_imba200
+  num_classes: 10
   num_iterations: 13000
   num_workers: 4
   open_threshold: 0.1
