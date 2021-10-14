@@ -44,6 +44,8 @@ class model ():
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.config = config
         self.training_opt = self.config['training_opt']
+        self.num_classes = self.training_opt['num_classes']
+        self.batch_size = self.training_opt['batch_size']
         self.memory = self.config['memory']
         self.data = data
         self.test_mode = test
@@ -75,6 +77,7 @@ class model ():
             # oversampled data number 
             print('Using steps for training.')
             self.training_data_num = len(self.data['train'].dataset)
+            # pdb.set_trace()
             self.epoch_steps = int(self.training_data_num  \
                                    / self.training_opt['batch_size'])
 
@@ -105,6 +108,10 @@ class model ():
                         pickle.dump(cfeats, f)
                     self.networks['classifier'].update(cfeats)
             self.log_file = None
+
+        self.accum_pos_grad = 0
+        self.accum_neg_grad = 0
+        self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
         
     def init_models(self, optimizer=True):
         networks_defs = self.config['networks']
@@ -153,7 +160,17 @@ class model ():
                                                 'lr': optim_params['lr'],
                                                 'momentum': optim_params['momentum'],
                                                 'weight_decay': optim_params['weight_decay']})
-            # pdb.set_trace()
+            # if key == 'classifier':
+            #     self.model_fc_optim_params = {'params': self.networks[key].parameters(),
+            #                                     'lr': optim_params['lr'],
+            #                                     'momentum': optim_params['momentum'],
+            #                                     'weight_decay': optim_params['weight_decay']}
+            # if key == 'feat_model':
+            #     self.model_cnn_optim_params = {'params': self.networks[key].parameters(),
+            #                                     'lr': optim_params['lr'],
+            #                                     'momentum': optim_params['momentum'],
+            #                                     'weight_decay': optim_params['weight_decay']}
+            pdb.set_trace()
 
     def init_criterions(self):
         criterion_defs = self.config['criterions']
@@ -163,6 +180,7 @@ class model ():
         for key, val in criterion_defs.items():
             def_file = val['def_file']
             loss_args = list(val['loss_params'].values())
+            # pdb.set_trace()
 
             self.criterions[key] = source_import(def_file).create_loss(*loss_args).cuda()
             self.criterion_weights[key] = val['weight']
@@ -206,6 +224,8 @@ class model ():
     def batch_forward (self, inputs, labels=None, centroids=False, feature_ext=False, phase='train'):
         '''
         This is a general single batch running function. 
+
+        在这个上面的改动就是 self.logits.retain_grad()
         '''
 
         # Calculate Features
@@ -230,13 +250,54 @@ class model ():
             # Calculate logits with classifier
             self.logits, self.direct_memory_feature = self.networks['classifier'](self.features, centroids_)
 
-    def batch_backward(self):
+            # 是non-leaves node 可求grad
+            if phase == 'train':
+                self.logits.retain_grad()
+
+            # self.logit = self.logit_ * weight
+    
+    def collect_grad(self, labels):
+        logits_grad = self.logits.grad
+        logits_grad = torch.abs(logits_grad)
+
+
+        target = self.logits.new_zeros(self.batch_size, self.num_classes)
+        target[torch.arange(self.batch_size), labels] = 1
+
+        pos_grad = torch.sum(logits_grad * target, dim=0)
+        neg_grad = torch.sum(logits_grad * (1-target), dim=0)
+
+        self.accum_pos_grad += pos_grad
+        self.accum_neg_grad += neg_grad
+        self.pos_neg_ratio = (self.accum_pos_grad + 1e-10) / (self.accum_neg_grad + 1e-10)
+
+    
+    def get_weight_for_forward_logit(self):
+
+        # print(self.pos_neg_ratio)
+
+        pos_weights = 1. / self.pos_neg_ratio
+        neg_weights = torch.ones(self.num_classes,device=self.device)
+
+        pos_weights = pos_weights.view(1,-1).expand(self.batch_size, self.num_classes)
+        neg_weights = neg_weights.view(1,-1).expand(self.batch_size, self.num_classes)
+        return pos_weights, neg_weights
+
+        
+
+
+
+    def batch_backward(self, labels):
         # Zero out optimizer gradients
         self.model_optimizer.zero_grad()
         if self.criterion_optimizer:
             self.criterion_optimizer.zero_grad()
         # Back-propagation from loss outputs
+        # self.logits.retain_grad()
         self.loss.backward()
+
+        self.collect_grad(labels)
+        # pdb.set_trace()
         # Step optimizers
         self.model_optimizer.step()
         if self.criterion_optimizer:
@@ -245,9 +306,23 @@ class model ():
     def batch_loss(self, labels):
         self.loss = 0
 
+        
+        if self.training_opt['weight_logits'] == True:
+            pos_weight, neg_weight = self.get_weight_for_forward_logit()
+            target = self.logits.new_zeros((self.batch_size, self.num_classes),device=self.device)
+            target[torch.arange(self.batch_size), labels] = 1
+            weight_for_logits = pos_weight * target + neg_weight * (1 - target)
+        else:
+            weight_for_logits = torch.ones((self.batch_size, self.num_classes), device=self.device)
+
+        # pdb.set_trace()
+
         # First, apply performance loss
         if 'PerformanceLoss' in self.criterions.keys():
-            self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels)
+
+            #### 权重加在exp上
+            self.loss_perf = self.criterions['PerformanceLoss'](self.logits + torch.log(weight_for_logits), labels)
+
             self.loss_perf *=  self.criterion_weights['PerformanceLoss']
             self.loss += self.loss_perf
 
@@ -337,6 +412,18 @@ class model ():
             total_preds = []
             total_labels = []
 
+            if epoch % 8 == 1:
+                print('pos_grad: ')
+                print(self.accum_pos_grad)
+
+
+                print('neg_grad: ')
+                print(self.accum_neg_grad)
+
+                print('ratio: ')
+                print(self.pos_neg_ratio)
+
+
             for step, (inputs, labels, indexes) in enumerate(self.data['train']):
                 # Break when step equal to epoch step
                 if step == self.epoch_steps:
@@ -356,7 +443,7 @@ class model ():
                                        centroids=self.memory['centroids'],
                                        phase='train')
                     self.batch_loss(labels)
-                    self.batch_backward()
+                    self.batch_backward(labels)
 
                     # Tracking predictions
                     _, preds = torch.max(self.logits, 1)
