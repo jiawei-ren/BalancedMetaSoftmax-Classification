@@ -170,7 +170,7 @@ class model ():
             #                                     'lr': optim_params['lr'],
             #                                     'momentum': optim_params['momentum'],
             #                                     'weight_decay': optim_params['weight_decay']}
-            pdb.set_trace()
+            # pdb.set_trace()
 
     def init_criterions(self):
         criterion_defs = self.config['criterions']
@@ -401,6 +401,8 @@ class model ():
                 model.train()
 
             torch.cuda.empty_cache()
+
+            # pdb.set_trace()
             
             # Set model modes and set scheduler
             # In training, step optimizer scheduler and set model to train() 
@@ -422,6 +424,14 @@ class model ():
 
                 print('ratio: ')
                 print(self.pos_neg_ratio)
+
+                print_str = "weight norm: " + str(self.networks['classifier'].module.fc.weight.norm(dim=1))
+                print_write(print_str, self.log_file)
+
+                print_str = "bias: " + str(self.networks['classifier'].module.fc.bias)
+                print_write(print_str, self.log_file)
+
+
 
 
             for step, (inputs, labels, indexes) in enumerate(self.data['train']):
