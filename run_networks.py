@@ -425,11 +425,11 @@ class model ():
                 print('ratio: ')
                 print(self.pos_neg_ratio)
 
-                print_str = "weight norm: " + str(self.networks['classifier'].module.fc.weight.norm(dim=1))
-                print_write(print_str, self.log_file)
+                # print_str = "weight norm: " + str(self.networks['classifier'].module.fc.weight.norm(dim=1))
+                # print_write(print_str, self.log_file)
 
-                print_str = "bias: " + str(self.networks['classifier'].module.fc.bias)
-                print_write(print_str, self.log_file)
+                # print_str = "bias: " + str(self.networks['classifier'].module.fc.bias)
+                # print_write(print_str, self.log_file)
 
 
 

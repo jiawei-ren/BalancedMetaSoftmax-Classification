@@ -49,8 +49,12 @@ class CosineAnnealingLRWarmup(_LRScheduler):
     def get_lr(self):
         assert self.warmup_epochs >= 2
         if self.last_epoch < self.warmup_epochs:
+            # print('--------wawrm up-------')
+            # print(self.get_warmup_lr())
             return self.get_warmup_lr()
         else:
+            # print('---------cos---------')
+            # print(self.get_cos_lr())
             return self.get_cos_lr()
 
 
