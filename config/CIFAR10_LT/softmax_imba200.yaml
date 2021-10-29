@@ -25,6 +25,7 @@ networks:
     params: {}
 shuffle: false
 training_opt:
+  weight_logits: false
   backbone: resnet32
   batch_size: 512
   dataset: CIFAR10_LT

@@ -28,6 +28,10 @@ import warnings
 import pdb
 import higher
 
+import matplotlib.pyplot as plt
+from sklearn import manifold
+# from cuml import manifold
+
 
 class model ():
     
@@ -112,6 +116,8 @@ class model ():
         self.accum_pos_grad = 0
         self.accum_neg_grad = 0
         self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
+        self.feature_norm_list_per_class = [[] for i in range(self.num_classes) ]
+        # self.feature_list_per_class = [[] for i in range(self.num_classes) ]
         
     def init_models(self, optimizer=True):
         networks_defs = self.config['networks']
@@ -376,6 +382,131 @@ class model ():
             print_str.append('\nMax Mem: {:.0f}M'.format(max_mem_mb))
             print_write(print_str, self.log_file)
 
+    def collect_feature_norm(self,features,labels):
+        # self.feature_norm = torch.zeros(self,num_classes,device=self.device)
+        
+        for idx in range(len(labels)):
+            self.feature_norm_list_per_class[labels[idx]].append(features[idx].norm(dim=0)) 
+        # pdb.set_trace()
+
+    def collect_feature(self,features,labels, phase):
+        if phase == 'train':
+            for idx in range(len(labels)):
+                self.feature_list.append(features[idx])
+                self.feature_list_label.append(labels[idx].item())
+        elif phase == 'val':
+            for idx in range(len(labels)):
+                self.feature_list_eval.append(features[idx])
+                self.feature_list_label_eval.append(labels[idx].item())
+
+    def collect_feature_fc_weight(self):
+        weight = self.networks['classifier'].module.fc.weight
+        for idx in range(self.num_classes):
+            self.feature_list.append(weight[idx])
+            self.feature_list_label.append(self.num_classes + idx)
+
+            self.feature_list_eval.append(weight[idx])
+            self.feature_list_label_eval.append(self.num_classes + idx)
+
+    def init_tsne_feature_list(self):
+        self.feature_list = []
+        self.feature_list_label = []
+
+        self.feature_list_eval = []
+        self.feature_list_label_eval = []
+
+
+    
+    
+        
+    def plot_tsne(self,epoch):
+        # fig, (ax1, ax2) = plt.subplots(1,2)
+        fig = plt.figure(figsize=(16,8))
+        plt.suptitle("epoch: "+str(epoch), fontsize=14)
+        colors_list = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        # plt.sup
+
+        tsne = manifold.TSNE(n_components=2, init='pca', random_state=0, method = 'exact')
+
+        # plot training feature and fc'weight
+        start_time = time.time()
+        print('start tsne')
+        # print(time.time())
+        # pdb.set_trace()
+        feature_train = torch.stack(self.feature_list, dim=0).detach().cpu().numpy()
+        label_train = np.array(self.feature_list_label)
+        Y = tsne.fit_transform(feature_train) # TODO 是否需要转换格式，归一化
+
+
+        medi_time = time.time()
+        train_used_time = medi_time - start_time
+        print("train used time: ")
+        print(train_used_time)
+
+        torch.save(Y, './tsne_test.tsne')
+        Y = torch.load('./tsne_test.tsne')
+
+        pdb.set_trace()
+
+        ax = fig.add_subplot(121)
+        for idx in range(len(label_train)):
+            label = label_train[idx]
+            color = colors_list[label % self.num_classes]
+            if label < self.num_classes:
+                marker = "o"
+            else:
+                marker = "*"
+            plt.scatter(Y[idx, 0], Y[idx, 1], c=color, marker=marker)
+        plt.title('training')
+
+
+        medi_time = time.time()
+        train_used_time = medi_time - start_time
+        print("train used time: ")
+        print(train_used_time)
+
+        
+
+        # plot val feature and fc's weight
+        feature_val = torch.stack(self.feature_list_eval, dim=0).detach().cpu().numpy()
+        label_val = np.array(self.feature_list_label_eval)
+        Y = tsne.fit_transform(feature_val) # TODO 是否需要转换格式，归一化
+        ax = fig.add_subplot(122)
+        for idx in range(len(label_val)):
+            label = label_val[idx]
+            color = colors_list[label % self.num_classes]
+            if label < self.num_classes:
+                marker = "o"
+            else:
+                marker = "*"
+            plt.scatter(Y[idx, 0], Y[idx, 1], c=color, marker=marker)
+        plt.title('val')
+
+        finished_time = time.time()
+        val_used_time = finished_time - medi_time
+        print("val used time: ")
+        print(val_used_time)
+
+        # print(time.time()) 
+
+        pdb.set_trace()
+        plt.savefig('test_tsne.png',dpi=150)
+
+
+
+    # def get_feature_inter_intra_class_dist(self):
+
+
+    def cal_feature_norm_per_class(self):
+        self.norm_per_class = []
+        
+        for lst in self.feature_norm_list_per_class:
+            self.norm_per_class.append(sum(lst)/(len(lst)+1e-10))
+
+        self.norm_per_class = torch.tensor(self.norm_per_class)
+        # pdb.set_trace()
+
+
     def train(self):
         # When training the network
         print_str = ['Phase: train']
@@ -383,6 +514,8 @@ class model ():
         time.sleep(0.25)
 
         print_write(['Do shuffle??? --- ', self.do_shuffle], self.log_file)
+
+        
 
         # Initialize best model
         best_model_weights = {}
@@ -415,21 +548,51 @@ class model ():
             total_labels = []
 
             if epoch % 8 == 1:
-                print('pos_grad: ')
-                print(self.accum_pos_grad)
+
+                print_str = 'pos_grad_last_epoch: ' + str(self.accum_pos_grad)
+                print_write(print_str, self.log_file)
 
 
-                print('neg_grad: ')
-                print(self.accum_neg_grad)
+                print_str = 'neg_grad_last_epoch: ' + str(self.accum_neg_grad)
+                print_write(print_str, self.log_file)
 
-                print('ratio: ')
-                print(self.pos_neg_ratio)
+                print_str = 'ratio_last_epoch: ' + str(self.pos_neg_ratio)
+                print_write(print_str, self.log_file)
 
-                # print_str = "weight norm: " + str(self.networks['classifier'].module.fc.weight.norm(dim=1))
+
+                # print('ratio: ')
+                # print(self.pos_neg_ratio)
+
+                print_str = "weight norm: " + str(self.networks['classifier'].module.fc.weight.norm(dim=1))
+                print_write(print_str, self.log_file)
+
+                print_str = "bias: " + str(self.networks['classifier'].module.fc.bias)
+                print_write(print_str, self.log_file)
+
+
+                self.cal_feature_norm_per_class()
+                print_str = 'feature_norm_per_class_last_epoch: ' + str(self.norm_per_class)
+                print_write(print_str, self.log_file)
+                # pdb.set_trace()
+
+                # self.get_feature_inter_intra_class_dist()
+                # print_str = 'feature_intra_class_dist_last_epoch: ' + str(self.)
                 # print_write(print_str, self.log_file)
 
-                # print_str = "bias: " + str(self.networks['classifier'].module.fc.bias)
+                # print_str = 'feature_inter_class_dist_last_epoch: ' + str(self.)
                 # print_write(print_str, self.log_file)
+
+                # self.plot_tsne()
+
+            self.init_tsne_feature_list()
+                
+
+            self.feature_norm_list_per_class = [[] for i in range(self.num_classes)]
+            self.feature_list_per_class = [[] for i in range(self.num_classes)]
+
+            self.accum_pos_grad = 0
+            self.accum_neg_grad = 0
+            self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
 
 
 
@@ -452,6 +615,8 @@ class model ():
                     self.batch_forward(inputs, labels, 
                                        centroids=self.memory['centroids'],
                                        phase='train')
+                    self.collect_feature_norm(self.features, labels)
+                    self.collect_feature(self.features, labels, phase='train')
                     self.batch_loss(labels)
                     self.batch_backward(labels)
 
@@ -519,6 +684,10 @@ class model ():
             rsls_eval = self.eval(phase='val')
             rsls.update(rsls_train)
             rsls.update(rsls_eval)
+
+            # 每个epoch 的train和val结束后，收集 classifier的 weight
+            self.collect_feature_fc_weight()
+            self.plot_tsne(epoch)
 
             # Reset class weights for sampling if pri_mode is valid
             if hasattr(self.data['train'].sampler, 'reset_priority'):
@@ -642,6 +811,10 @@ class model ():
                 self.batch_forward(inputs, labels, 
                                    centroids=self.memory['centroids'],
                                    phase=phase)
+
+                # 收集每个epoch中，val样本的feature
+                self.collect_feature(self.features, labels, phase=phase)
+
                 if not get_feat_only:
                     self.total_logits = torch.cat((self.total_logits, self.logits))
                     self.total_labels = torch.cat((self.total_labels, labels))
