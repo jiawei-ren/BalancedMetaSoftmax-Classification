@@ -30,7 +30,6 @@ import higher
 
 import matplotlib.pyplot as plt
 from sklearn import manifold
-# from cuml import manifold
 
 
 class model ():
