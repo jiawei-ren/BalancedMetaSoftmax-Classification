@@ -29,7 +29,8 @@ import pdb
 import higher
 
 import matplotlib.pyplot as plt
-from sklearn import manifold
+# from sklearn import manifold
+from tsnecuda import TSNE
 
 
 class model ():
@@ -425,7 +426,8 @@ class model ():
         colors_list = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
         # plt.sup
 
-        tsne = manifold.TSNE(n_components=2, init='pca', random_state=0, method = 'exact')
+        # tsne = manifold.TSNE(n_components=2, init='pca', random_state=0, method = 'exact')
+        tsne = TSNE(n_components=2, perplexity=15, learning_rate=10)
 
         # plot training feature and fc'weight
         start_time = time.time()
@@ -459,10 +461,10 @@ class model ():
         plt.title('training')
 
 
-        medi_time = time.time()
-        train_used_time = medi_time - start_time
-        print("train used time: ")
-        print(train_used_time)
+        # medi_time = time.time()
+        # train_used_time = medi_time - start_time
+        # print("train used time: ")
+        # print(train_used_time)
 
         
 
