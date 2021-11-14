@@ -32,7 +32,7 @@ training_opt:
   num_epochs: 10
   num_workers: 4
   open_threshold: 0.1
-  sampler: {def_file: ./data/ClassAwareSampler.py, num_samples_cls: 4, type: ClassAwareSampler}
+  sampler: null
   scheduler_params: {gamma: 0.1, step_size: 30}
   stage: decouple_balanced_softmax
   sub_dir: clslearn
