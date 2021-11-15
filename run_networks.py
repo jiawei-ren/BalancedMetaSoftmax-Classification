@@ -279,8 +279,8 @@ class model ():
 
             # self.logit = self.logit_ * weight
     
-    def collect_grad(self, labels):
-        logits_grad = self.logits.grad
+    def collect_grad(self, logits_grad, labels):
+        # logits_grad = self.logits.grad
         logits_grad = torch.abs(logits_grad)
 
 
@@ -295,7 +295,7 @@ class model ():
 
         self.accum_pos_logit_grad += pos_grad
 
-        # self.accum_neg_logit_grad 的dim_0是index of classifier, dim_1是category of example
+        # self.accum_neg_logit_grad的size=(C, C)， dim_0是index of classifier, dim_1是category of example
         for idx in range(self.batch_size):
             self.accum_neg_logit_grad[:, labels[idx]] += neg_logit_grad[idx] 
 
@@ -316,7 +316,8 @@ class model ():
         return pos_weights, neg_weights
 
         
-
+    def get_weight_for_backward_logits(self):
+        return torch.ones((self.batch_size, self.num_classes),device=self.device)
 
 
     def batch_backward(self, labels):
@@ -328,13 +329,55 @@ class model ():
         # self.logits.retain_grad()
         self.loss.backward()
 
-        self.collect_grad(labels)
+        weight_for_logits_grad = self.get_weight_for_backward_logits()
+
+        self.collect_grad(labels,self.logits_for_backward.grad)
+
+        #  logits 的grad
+        self.logits.backward(self.logits_for_backward.grad * weight_for_logits_grad)
+        # self.logits_for_backward.grad 
+
+        
 
         # Step optimizers
         self.model_optimizer.step()
         if self.criterion_optimizer:
             self.criterion_optimizer.step()
 
+    def batch_loss(self, labels):
+        # 这个batch loss里面，使用logits_for_backward提到原始logits进行loss的计算。
+        self.loss = 0
+
+        self.logits_for_backward = self.logits.detach()
+
+        
+        if self.training_opt['weight_logits'] == True:
+            pos_weight, neg_weight = self.get_weight_for_forward_logit()
+            target = self.logits.new_zeros((self.batch_size, self.num_classes),device=self.device)
+            target[torch.arange(self.batch_size), labels] = 1
+            weight_for_logits = pos_weight * target + neg_weight * (1 - target)
+        else:
+            weight_for_logits = torch.ones((self.batch_size, self.num_classes), device=self.device)
+
+        # pdb.set_trace()
+
+        # First, apply performance loss
+        if 'PerformanceLoss' in self.criterions.keys():
+
+            #### 权重加在exp上
+            self.loss_perf = self.criterions['PerformanceLoss'](self.logits_for_backward, labels)
+
+            self.loss_perf *=  self.criterion_weights['PerformanceLoss']
+            self.loss += self.loss_perf
+
+        # Apply loss on features if set up
+        if 'FeatureLoss' in self.criterions.keys():
+            self.loss_feat = self.criterions['FeatureLoss'](self.features, labels)
+            self.loss_feat = self.loss_feat * self.criterion_weights['FeatureLoss']
+            # Add feature loss to total loss
+            self.loss += self.loss_feat
+
+    '''
     def batch_loss(self, labels):
         self.loss = 0
 
@@ -364,6 +407,7 @@ class model ():
             self.loss_feat = self.loss_feat * self.criterion_weights['FeatureLoss']
             # Add feature loss to total loss
             self.loss += self.loss_feat
+    '''
     
     def shuffle_batch(self, x, y):
         index = torch.randperm(x.size(0))
