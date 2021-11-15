@@ -2,7 +2,7 @@ coslr: false
 coslrwarmup: true
 criterions:
   PerformanceLoss:
-    def_file: ./loss/SoftmaxLoss.py
+    def_file: ./loss/BCEWithLogitsLoss.py
     loss_params: {}
     optim_params: null
     weight: 1.0
@@ -31,7 +31,7 @@ training_opt:
   dataset: CIFAR10_LT
   display_step: 10
   feature_dim: 64
-  log_dir: ./logs/CIFAR10_LT/models/resnet32_softmax_imba1
+  log_dir: ./logs/CIFAR10_LT/models/resnet32_BCE_imba1
   num_classes: 10
   num_iterations: 13000
   num_workers: 4

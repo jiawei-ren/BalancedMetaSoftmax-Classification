@@ -31,7 +31,7 @@ training_opt:
   dataset: CIFAR100_LT
   display_step: 10
   feature_dim: 64
-  log_dir: ./logs/CIFAR100_LT/models/resnet32_softmax_imba200
+  log_dir: ./logs/CIFAR100_LT/models/resnet32_softmax_imba1
   num_classes: 100
   num_iterations: 13000
   num_workers: 4
