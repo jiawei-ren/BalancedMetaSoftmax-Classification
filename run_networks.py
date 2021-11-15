@@ -30,7 +30,8 @@ import higher
 
 import matplotlib.pyplot as plt
 # from sklearn import manifold
-from tsnecuda import TSNE
+# from tsnecuda import TSNE
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 
 class model ():
@@ -117,7 +118,23 @@ class model ():
         self.accum_neg_grad = 0
         self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
         self.feature_norm_list_per_class = [[] for i in range(self.num_classes) ]
+
+        self.accum_pos_logit_grad = torch.zeros(self.num_classes, device=self.device)
+        self.accum_neg_logit_grad = torch.zeros((self.num_classes, self.num_classes), device=self.device)
         # self.feature_list_per_class = [[] for i in range(self.num_classes) ]
+
+        self.neg_ratio_09 = []
+        self.neg_ratio_18 = []
+        self.neg_ratio_19 = []
+        self.neg_ratio_37 = []
+    
+    def init_before_epoch(self):
+        self.accum_pos_logit_grad = torch.zeros(self.num_classes, device=self.device)
+        self.accum_neg_logit_grad = torch.zeros((self.num_classes, self.num_classes), device=self.device)
+
+        self.accum_pos_grad = 0
+        self.accum_neg_grad = 0
+
         
     def init_models(self, optimizer=True):
         networks_defs = self.config['networks']
@@ -268,10 +285,19 @@ class model ():
 
 
         target = self.logits.new_zeros(self.batch_size, self.num_classes)
-        target[torch.arange(self.batch_size), labels] = 1
+        target[torch.arange(self.batch_size), labels] = 1 #TODO
 
-        pos_grad = torch.sum(logits_grad * target, dim=0)
-        neg_grad = torch.sum(logits_grad * (1-target), dim=0)
+        pos_logit_grad = logits_grad * target
+        neg_logit_grad = logits_grad * (1 - target)
+
+        pos_grad = torch.sum(pos_logit_grad, dim=0)
+        neg_grad = torch.sum(neg_logit_grad, dim=0)
+
+        self.accum_pos_logit_grad += pos_grad
+
+        # self.accum_neg_logit_grad 的dim_0是index of classifier, dim_1是category of example
+        for idx in range(self.batch_size):
+            self.accum_neg_logit_grad[:, labels[idx]] += neg_logit_grad[idx] 
 
         self.accum_pos_grad += pos_grad
         self.accum_neg_grad += neg_grad
@@ -303,7 +329,7 @@ class model ():
         self.loss.backward()
 
         self.collect_grad(labels)
-        # pdb.set_trace()
+
         # Step optimizers
         self.model_optimizer.step()
         if self.criterion_optimizer:
@@ -418,80 +444,6 @@ class model ():
 
     
     
-        
-    def plot_tsne(self,epoch):
-        # fig, (ax1, ax2) = plt.subplots(1,2)
-        fig = plt.figure(figsize=(16,8))
-        plt.suptitle("epoch: "+str(epoch), fontsize=14)
-        colors_list = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-        # plt.sup
-
-        # tsne = manifold.TSNE(n_components=2, init='pca', random_state=0, method = 'exact')
-        tsne = TSNE(n_components=2, perplexity=15, learning_rate=10)
-
-        # plot training feature and fc'weight
-        start_time = time.time()
-        print('start tsne')
-        # print(time.time())
-        # pdb.set_trace()
-        feature_train = torch.stack(self.feature_list, dim=0).detach().cpu().numpy()
-        label_train = np.array(self.feature_list_label)
-        Y = tsne.fit_transform(feature_train) # TODO 是否需要转换格式，归一化
-
-
-        medi_time = time.time()
-        train_used_time = medi_time - start_time
-        print("train used time: ")
-        print(train_used_time)
-
-        torch.save(Y, './tsne_test.tsne')
-        Y = torch.load('./tsne_test.tsne')
-
-        pdb.set_trace()
-
-        ax = fig.add_subplot(121)
-        for idx in range(len(label_train)):
-            label = label_train[idx]
-            color = colors_list[label % self.num_classes]
-            if label < self.num_classes:
-                marker = "o"
-            else:
-                marker = "*"
-            plt.scatter(Y[idx, 0], Y[idx, 1], c=color, marker=marker)
-        plt.title('training')
-
-
-        # medi_time = time.time()
-        # train_used_time = medi_time - start_time
-        # print("train used time: ")
-        # print(train_used_time)
-
-        
-
-        # plot val feature and fc's weight
-        feature_val = torch.stack(self.feature_list_eval, dim=0).detach().cpu().numpy()
-        label_val = np.array(self.feature_list_label_eval)
-        Y = tsne.fit_transform(feature_val) # TODO 是否需要转换格式，归一化
-        ax = fig.add_subplot(122)
-        for idx in range(len(label_val)):
-            label = label_val[idx]
-            color = colors_list[label % self.num_classes]
-            if label < self.num_classes:
-                marker = "o"
-            else:
-                marker = "*"
-            plt.scatter(Y[idx, 0], Y[idx, 1], c=color, marker=marker)
-        plt.title('val')
-
-        finished_time = time.time()
-        val_used_time = finished_time - medi_time
-        print("val used time: ")
-        print(val_used_time)
-
-        # print(time.time()) 
-
-        pdb.set_trace()
-        plt.savefig('test_tsne.png',dpi=150)
 
 
 
@@ -507,48 +459,60 @@ class model ():
         self.norm_per_class = torch.tensor(self.norm_per_class)
         # pdb.set_trace()
 
-
-    def train(self):
-        # When training the network
-        print_str = ['Phase: train']
+    # 所有在每个epoch训练和eval后的处理，都可以放在这个方法中
+    def callback_after_epoch(self, epoch):
+        print_str = 'pos grad this epoch: ' + str(self.accum_pos_logit_grad.cpu().numpy())
         print_write(print_str, self.log_file)
-        time.sleep(0.25)
 
-        print_write(['Do shuffle??? --- ', self.do_shuffle], self.log_file)
+        print_str = 'neg grad this epoch: ' + str(self.accum_neg_logit_grad.cpu().numpy())
+        print_write(print_str, self.log_file)
 
-        
+        # neg_ratio_09 = []
+        # neg_ratio_18 = []
+        # self.neg_ratio_19 = []
+        # self.neg_ratio_37 = []
 
-        # Initialize best model
-        best_model_weights = {}
-        best_model_weights['feat_model'] = copy.deepcopy(self.networks['feat_model'].state_dict())
-        best_model_weights['classifier'] = copy.deepcopy(self.networks['classifier'].state_dict())
-        best_acc = 0.0
-        best_epoch = 0
-        # best_centroids = self.centroids
+        for idx in range(self.num_classes):
+            index_0 = self.accum_neg_logit_grad[idx][0]
+            index_9 = self.accum_neg_logit_grad[idx][9]
 
-        end_epoch = self.training_opt['num_epochs']
-        # pdb.set_trace()
+            index_1 = self.accum_neg_logit_grad[idx][1]
+            index_8 = self.accum_neg_logit_grad[idx][8]
 
-        # Loop over epochs
-        for epoch in range(1, end_epoch + 1):
-            for model in self.networks.values():
-                model.train()
+            index_3 = self.accum_neg_logit_grad[idx][3]
+            index_7 = self.accum_neg_logit_grad[idx][7]
 
-            torch.cuda.empty_cache()
+            
 
             # pdb.set_trace()
-            
-            # Set model modes and set scheduler
-            # In training, step optimizer scheduler and set model to train() 
-            self.model_optimizer_scheduler.step()
-            if self.criterion_optimizer:
-                self.criterion_optimizer_scheduler.step()
 
-            # Iterate over dataset
-            total_preds = []
-            total_labels = []
+            if index_0 != 0.0 and index_9 != 0.0:
+                self.neg_ratio_09.append(index_0 / index_9)
+            if index_1 != 0.0 and index_8 != 0.0:
+                self.neg_ratio_18.append(index_1 / index_8)
+            if index_1 != 0.0 and index_9 != 0.0:
+                self.neg_ratio_19.append(index_1 / index_9)
+            if index_3 != 0.0 and index_7 != 0.0:
+                self.neg_ratio_37.append(index_3 / index_7)
+        
+        print_str = 'neg_ratio_09: ' + str(sum(self.neg_ratio_09) / len(self.neg_ratio_09))
+        print_write(print_str, self.log_file)
 
-            if epoch % 8 == 1:
+        print_str = 'neg_ratio_18: ' + str(sum(self.neg_ratio_18) / len(self.neg_ratio_18))
+        print_write(print_str, self.log_file)
+
+        print_str = 'neg_ratio_19: ' + str(sum(self.neg_ratio_19) / len(self.neg_ratio_19))
+        print_write(print_str, self.log_file)
+
+        print_str = 'neg_ratio_37: ' + str(sum(self.neg_ratio_37) / len(self.neg_ratio_37))
+        print_write(print_str, self.log_file)
+
+        print_str = 'ratio_this_epoch: ' + str(self.pos_neg_ratio.cpu().numpy())
+        print_write(print_str, self.log_file)
+
+
+        '''
+        if epoch % 8 == 1:
 
                 print_str = 'pos_grad_last_epoch: ' + str(self.accum_pos_grad)
                 print_write(print_str, self.log_file)
@@ -574,16 +538,55 @@ class model ():
                 self.cal_feature_norm_per_class()
                 print_str = 'feature_norm_per_class_last_epoch: ' + str(self.norm_per_class)
                 print_write(print_str, self.log_file)
-                # pdb.set_trace()
-
-                # self.get_feature_inter_intra_class_dist()
-                # print_str = 'feature_intra_class_dist_last_epoch: ' + str(self.)
-                # print_write(print_str, self.log_file)
-
-                # print_str = 'feature_inter_class_dist_last_epoch: ' + str(self.)
-                # print_write(print_str, self.log_file)
-
                 # self.plot_tsne()
+        '''
+
+        pass
+
+
+    def train(self):
+        # When training the network
+        print_str = ['Phase: train']
+        print_write(print_str, self.log_file)
+        time.sleep(0.25)
+
+        print_write(['Do shuffle??? --- ', self.do_shuffle], self.log_file)
+
+        
+
+        # Initialize best model
+        best_model_weights = {}
+        best_model_weights['feat_model'] = copy.deepcopy(self.networks['feat_model'].state_dict())
+        best_model_weights['classifier'] = copy.deepcopy(self.networks['classifier'].state_dict())
+        best_acc = 0.0
+        best_epoch = 0
+        # best_centroids = self.centroids
+
+        end_epoch = self.training_opt['num_epochs']
+        # pdb.set_trace()
+
+        # Loop over epochs
+        for epoch in range(1, end_epoch + 1):
+
+            self.init_before_epoch()
+
+            for model in self.networks.values():
+                model.train()
+
+            torch.cuda.empty_cache()
+
+            # pdb.set_trace()
+            
+            # Set model modes and set scheduler
+            # In training, step optimizer scheduler and set model to train() 
+            self.model_optimizer_scheduler.step()
+            if self.criterion_optimizer:
+                self.criterion_optimizer_scheduler.step()
+
+            # Iterate over dataset
+            total_preds = []
+            total_labels = []
+
 
             self.init_tsne_feature_list()
                 
@@ -593,6 +596,9 @@ class model ():
 
             self.accum_pos_grad = 0
             self.accum_neg_grad = 0
+
+
+
             self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
 
 
@@ -679,6 +685,8 @@ class model ():
             if hasattr(self.data['train'].sampler, 'reset_weights'):
                 self.data['train'].sampler.reset_weights(epoch)
 
+            self.callback_after_epoch(epoch)
+            
             # After every epoch, validation
             rsls = {'epoch': epoch}
             rsls_train = self.eval_with_preds(total_preds, total_labels)
@@ -687,8 +695,8 @@ class model ():
             rsls.update(rsls_eval)
 
             # 每个epoch 的train和val结束后，收集 classifier的 weight
-            self.collect_feature_fc_weight()
-            self.plot_tsne(epoch)
+            # self.collect_feature_fc_weight()
+            # self.plot_tsne(epoch)
 
             # Reset class weights for sampling if pri_mode is valid
             if hasattr(self.data['train'].sampler, 'reset_priority'):
