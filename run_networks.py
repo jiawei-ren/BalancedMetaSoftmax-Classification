@@ -27,6 +27,7 @@ import numpy as np
 import warnings
 import pdb
 import higher
+import json
 
 import matplotlib.pyplot as plt
 # from sklearn import manifold
@@ -114,6 +115,12 @@ class model ():
                     self.networks['classifier'].update(cfeats)
             self.log_file = None
 
+
+        freq_path = self.training_opt['freq_path']
+        with open(freq_path, 'r') as fd:
+            freq = json.load(fd)
+        self.sample_per_class = torch.tensor(freq)
+
         self.accum_pos_grad = 0
         self.accum_neg_grad = 0
         self.pos_neg_ratio = torch.ones(self.num_classes,device=self.device)
@@ -130,10 +137,11 @@ class model ():
     
     def init_before_epoch(self):
         self.accum_pos_logit_grad = torch.zeros(self.num_classes, device=self.device)
-        self.accum_neg_logit_grad = torch.zeros((self.num_classes, self.num_classes), device=self.device)
+        self.accum_neg_logit_grad = torch.zeros((self.num_classes, self.num_classes), device=self.device) # size = C x C
 
-        self.accum_pos_grad = 0
-        self.accum_neg_grad = 0
+        # size = C. 纯粹记录每个classifier的grad
+        # self.accum_pos_grad = 0
+        # self.accum_neg_grad = 0
 
         
     def init_models(self, optimizer=True):
@@ -316,8 +324,58 @@ class model ():
         return pos_weights, neg_weights
 
         
-    def get_weight_for_backward_logits(self):
-        return torch.ones((self.batch_size, self.num_classes),device=self.device)
+    def get_weight_for_backward_logits(self, logits_grad, labels):
+        # 在这个方法里，可以尝试不同的直接给梯度的加权方法
+        # self.sample_per_class
+
+        if self.training_opt['backward_weight_logits'] == 'ones':
+
+            # 普通的训练方法
+            return torch.ones((self.batch_size, self.num_classes),device=self.device)
+        elif self.training_opt['backward_weight_logits'] == 'balanced_freq':
+            # 在logits的梯度上，
+            logits_grad = torch.abs(logits_grad)
+
+            target = self.logits.new_zeros(self.batch_size, self.num_classes)
+            target[torch.arange(self.batch_size), labels] = 1 #TODO
+            neg_target = 1 - target
+            spc = self.sample_per_class.type_as(target)
+            neg_weight = neg_target * spc.unsqueeze(0).expand(self.batch_size, -1)
+            for batch_idx in range(self.batch_size):
+                neg_weight[batch_idx] = neg_weight[batch_idx] / spc[labels[batch_idx]] 
+
+            neg_grad = (logits_grad * neg_weight).sum(dim=1)
+            pos_grad = (logits_grad * target).sum(dim=1)
+            # pos_weight = target
+
+            neg_grad_sum = neg_grad.unsqueeze(1).expand(-1, self.num_classes)
+            pos_grad_sum = pos_grad.unsqueeze(1).expand(-1, self.num_classes)
+            neg_pos_ratio = neg_grad_sum / pos_grad_sum
+            pos_weight = target * neg_pos_ratio
+            weight = pos_weight+neg_weight
+
+
+            # logits_g_w = logits_grad * weight
+            # logits_g_w_neg = logits_g_w * neg_target
+            # logits_g_w_pos = logits_g_w * target
+
+            # pdb.set_trace()
+
+                
+
+            '''
+            weight = torch.ones((self.batch_size, self.num_classes),device=self.device)
+            spc = self.sample_per_class.type_as(weight)
+            weight = weight * spc.unsqueeze(0).expand(weight.shape[0], -1)
+
+            for batch_idx in range(self.batch_size):
+                weight[batch_idx] = weight[batch_idx] / spc[labels[batch_idx]] 
+            # pdb.set_trace()
+            '''
+            return weight
+
+
+
 
 
     def batch_backward(self, labels):
@@ -329,12 +387,22 @@ class model ():
         # self.logits.retain_grad()
         self.loss.backward()
 
-        weight_for_logits_grad = self.get_weight_for_backward_logits()
+        # pdb.set_trace()
+        
 
-        self.collect_grad(labels,self.logits_for_backward.grad)
+        weight_for_logits_grad = self.get_weight_for_backward_logits(self.logits_for_backward.grad, labels)
+        # sum_of_logits_grad 
+        # weight_for_logits_grad = torch.log(weight_for_logits_grad+1)
+        logits_grad_with_weight = self.logits_for_backward.grad * weight_for_logits_grad
+        logits_grad_with_weight = logits_grad_with_weight / logits_grad_with_weight.norm() * self.logits_for_backward.grad.norm()
+
+        self.collect_grad(logits_grad_with_weight, labels)
+
+        # print(self.logits_for_backward.grad.norm() / logits_grad_with_weight.norm())
 
         #  logits 的grad
-        self.logits.backward(self.logits_for_backward.grad * weight_for_logits_grad)
+        # pdb.set_trace()
+        self.logits.backward(logits_grad_with_weight)
         # self.logits_for_backward.grad 
 
         
@@ -349,6 +417,9 @@ class model ():
         self.loss = 0
 
         self.logits_for_backward = self.logits.detach()
+        self.logits_for_backward.requires_grad = True
+
+        # pdb.set_trace()
 
         
         if self.training_opt['weight_logits'] == True:
@@ -505,6 +576,8 @@ class model ():
 
     # 所有在每个epoch训练和eval后的处理，都可以放在这个方法中
     def callback_after_epoch(self, epoch):
+        # TODO
+        '''
         print_str = 'pos grad this epoch: ' + str(self.accum_pos_logit_grad.cpu().numpy())
         print_write(print_str, self.log_file)
 
@@ -550,6 +623,7 @@ class model ():
 
         print_str = 'neg_ratio_37: ' + str(sum(self.neg_ratio_37) / len(self.neg_ratio_37))
         print_write(print_str, self.log_file)
+        '''
 
         print_str = 'ratio_this_epoch: ' + str(self.pos_neg_ratio.cpu().numpy())
         print_write(print_str, self.log_file)
